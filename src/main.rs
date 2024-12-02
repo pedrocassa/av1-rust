@@ -47,37 +47,45 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match commands.subcommand() {
         Some(("create", args)) => {
-            let name = args.get_one::<String>("name").unwrap_or_else(|| {
-                eprintln!("Error: 'name' argument is required");
-                std::process::exit(1);
-            }).to_string();
+            let name = match args.get_one::<String>("name") {
+                Some(n) => Some(n.to_string()),
+                None => None,
+            };
 
-            let birth_date = NaiveDate::parse_from_str(args.get_one::<String>("birth_date").unwrap_or_else(|| {
-                eprintln!("Error: 'birth_date' argument is required");
-                std::process::exit(1);
-            }), "%Y-%m-%d")?;
+            let birth_date = match args.get_one::<String>("birth_date") {
+                Some(bd) => Some(NaiveDate::parse_from_str(bd, "%Y-%m-%d").expect("Invalid date format")),
+                None => None,
+            };
 
-            let cr: f32 = args.get_one::<String>("cr").unwrap_or_else(|| {
-                eprintln!("Error: 'cr' argument is required");
-                std::process::exit(1);
-            }).parse()?;
+            let cr = match args.get_one::<String>("cr") {
+                Some(c) => match c.parse::<f32>() {
+                    Ok(val) => Some(val),
+                    Err(_) => {
+                        println!("Failed to parse 'cr' to an integer.");
+                        Some(0.0)
+                    }
+                },
+                None => Some(0.0),
+            };
 
-            let status = match args.get_one::<String>("status").unwrap_or_else(|| {
-                eprintln!("Error: 'status' argument is required");
-                std::process::exit(1);
-            }).as_str() {
-                "Active" => Status::Active,
-                "Inactive" => Status::Inactive,
-                "Graduated" => Status::Graduated,
-                "Suspended" => Status::Suspended,
-                _ => Status::Active,
+            let status = match args.get_one::<String>("status") {
+                Some(s) => match s.as_str() {
+                    "Active" => Some(Status::Active),
+                    "Inactive" => Some(Status::Inactive),
+                    "Graduated" => Some(Status::Graduated),
+                    "Suspended" => Some(Status::Suspended),
+                    _ => None,
+                },
+                None => None,
             };
 
             let new_student = Student::new(name, birth_date, cr, status);
+
             persistence.create(&new_student)?;
         }
         Some(("read_one", args)) => {
             let id_str = args.get_one::<String>("id").unwrap();
+
             let id: i32 = id_str.parse().unwrap_or_else(|_| {
                 eprintln!("Error: invalid ID format");
                 std::process::exit(1);
@@ -90,37 +98,73 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Some(("read_all", _)) => {
             let students = persistence.read_all()?;
+
             for student in students {
                 student.display()
             }
         }
         Some(("update", args)) => {
             let id_str = args.get_one::<String>("id").unwrap();
+
             let id: i32 = id_str.parse().unwrap_or_else(|_| {
                 eprintln!("Error: invalid ID format");
                 std::process::exit(1);
             });
 
-            let name = args.get_one::<String>("name").map(|n| n.to_string());
-            let birth_date = args.get_one::<String>("birth_date")
-                .map(|bd| NaiveDate::parse_from_str(bd, "%Y-%m-%d").expect("Invalid date format"));
-            let cr = args.get_one::<String>("cr").map(|c| c.parse().unwrap());
-            let status = args.get_one::<String>("status").map(|s| match s.as_str() {
-                "Active" => Status::Active,
-                "Inactive" => Status::Inactive,
-                "Graduated" => Status::Graduated,
-                "Suspended" => Status::Suspended,
-                _ => Status::Active,
+            let student_option = persistence.read_one(id).unwrap_or_else(|_| {
+                eprintln!("Error: no student found with the provided id");
+                std::process::exit(1);
             });
 
+            let student = match student_option {
+                Some(student) => student,
+                None => {
+                    eprintln!("No student found with the provided ID");
+                    std::process::exit(1);
+                }
+            };
+
+            let name = match args.get_one::<String>("name") {
+                Some(n) => Some(n.to_string()),
+                None => student.name,
+            };
+
+            let birth_date = match args.get_one::<String>("birth_date") {
+                Some(bd) => Some(NaiveDate::parse_from_str(bd, "%Y-%m-%d").expect("Invalid date format")),
+                None => student.birth_date,
+            };
+
+            let cr = match args.get_one::<String>("cr") {
+                Some(c) => match c.parse::<f32>() {
+                    Ok(val) => Some(val),
+                    Err(_) => {
+                        println!("Failed to parse 'cr' to an integer.");
+                        student.cr
+                    }
+                },
+                None => student.cr,
+            };
+
+            let status = match args.get_one::<String>("status") {
+                Some(s) => match s.as_str() {
+                    "Active" => Some(Status::Active),
+                    "Inactive" => Some(Status::Inactive),
+                    "Graduated" => Some(Status::Graduated),
+                    "Suspended" => Some(Status::Suspended),
+                    _ => None,
+                },
+                None => student.status,
+            };
+                
             let mut updated_student = Student::new(
-                name.unwrap_or_default(),
-                birth_date.unwrap(),
-                cr.unwrap(),
-                status.unwrap(),
+                name,
+                birth_date,
+                cr,
+                status,
             );
 
             updated_student.set_id(id);
+            
             persistence.update(&updated_student)?;
         }
         Some(("delete", args)) => {
